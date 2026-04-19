@@ -72,9 +72,7 @@ func TestStoreEvent(t *testing.T) {
 	}{
 		{
 			name: "unsupported event type",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap: map[string]any{
 				"eventType": "UNKNOWN_TYPE",
 			},
@@ -83,9 +81,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - new cluster and new task",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap:          makeTaskEventMap(testTaskName1, testNodeID1, testTaskID1, 0),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -102,11 +98,11 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - existing cluster, new task",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: map[string]*types.TaskMap{
-					testClusterName: types.NewTaskMap(),
-				},
-			},
+			initialState: func() *types.ClusterTaskMap {
+				m := types.NewClusterTaskMap()
+				m.GetOrCreateTaskMap("cluster1")
+				return m
+			}(),
 			eventMap:          makeTaskEventMap(testTaskName2, testNodeID2, testTaskID2, 1),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -123,15 +119,14 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - existing cluster and existing task with new attempt",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: map[string]*types.TaskMap{
-					testClusterName: {
-						TaskMap: map[string][]types.Task{
-							testTaskID1: {initialTask},
-						},
-					},
-				},
-			},
+			initialState: func() *types.ClusterTaskMap {
+				m := types.NewClusterTaskMap()
+				taskMap := m.GetOrCreateTaskMap("cluster1")
+				taskMap.CreateOrMergeAttempt(testTaskID1, initialTask.TaskAttempt, func(task *types.Task) {
+					*task = initialTask
+				})
+				return m
+			}(),
 			eventMap:          makeTaskEventMap(testTaskName1, testNodeID1, testTaskID1, 2),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -155,9 +150,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - base64 ID is normalized to hex",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap:          makeTaskEventMap(testTaskName1, testBase64ID1, testBase64ID2, 0),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -174,9 +167,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - uppercase hex IDs normalized to lowercase",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap:          makeTaskEventMap(testTaskName1, testUpperNodeID1, testUpperTaskID1, 0),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -193,9 +184,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - lowercase hex IDs are returned as-is",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap:          makeTaskEventMap(testTaskName1, testLowerNodeID1, testLowerTaskID1, 0),
 			wantErr:           false,
 			wantClusterCount:  1,
@@ -212,9 +201,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - missing taskDefinitionEvent",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap: map[string]any{
 				"eventType": string(types.TASK_DEFINITION_EVENT),
 			},
@@ -222,9 +209,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - taskDefinitionEvent wrong type",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap: map[string]any{
 				"eventType":           string(types.TASK_DEFINITION_EVENT),
 				"taskDefinitionEvent": "not a map",
@@ -233,9 +218,7 @@ func TestStoreEvent(t *testing.T) {
 		},
 		{
 			name: "task event - invalid task structure",
-			initialState: &types.ClusterTaskMap{
-				ClusterTaskMap: make(map[string]*types.TaskMap),
-			},
+			initialState: types.NewClusterTaskMap(),
 			eventMap: map[string]any{
 				"eventType": string(types.TASK_DEFINITION_EVENT),
 				"taskDefinitionEvent": map[string]any{
@@ -253,9 +236,7 @@ func TestStoreEvent(t *testing.T) {
 				ClusterTaskMap: tt.initialState,
 			}
 			if h.ClusterTaskMap == nil {
-				h.ClusterTaskMap = &types.ClusterTaskMap{
-					ClusterTaskMap: make(map[string]*types.TaskMap),
-				}
+				h.ClusterTaskMap = types.NewClusterTaskMap()
 			}
 
 			err := h.storeEvent(testClusterName, tt.eventMap)
@@ -267,22 +248,14 @@ func TestStoreEvent(t *testing.T) {
 				return
 			}
 
-			gotClusterCount := len(h.ClusterTaskMap.ClusterTaskMap)
+			gotClusterCount := h.ClusterTaskMap.GetClusterCount()
 
 			if gotClusterCount != tt.wantClusterCount {
 				t.Errorf("storeEvent() resulted in %d clusters, want %d", gotClusterCount, tt.wantClusterCount)
 			}
 
 			if tt.wantTasks != nil {
-				clusterObj, clusterExists := h.ClusterTaskMap.ClusterTaskMap[tt.wantTaskInCluster]
-
-				if !clusterExists {
-					t.Fatalf("storeEvent() cluster %s not found", tt.wantTaskInCluster)
-				}
-
-				clusterObj.Lock()
-				defer clusterObj.Unlock()
-				gotTasks, taskExists := clusterObj.TaskMap[tt.wantTaskID]
+				gotTasks, taskExists := h.ClusterTaskMap.GetTaskByID(tt.wantTaskInCluster, tt.wantTaskID)
 				if !taskExists {
 					t.Fatalf("storeEvent() task %s not found in cluster %s", tt.wantTaskID, tt.wantTaskInCluster)
 				}
@@ -486,11 +459,7 @@ func TestTaskLifecycleEventDeduplication(t *testing.T) {
 			}
 
 			// Get the task and verify
-			taskMap := h.ClusterTaskMap.GetOrCreateTaskMap(testClusterName)
-			taskMap.Lock()
-			defer taskMap.Unlock()
-
-			tasks, exists := taskMap.TaskMap[testTaskID]
+			tasks, exists := h.ClusterTaskMap.GetTaskByID(testClusterName, testTaskID)
 			if !exists || len(tasks) == 0 {
 				t.Fatal("Task not found after processing")
 			}
@@ -1017,11 +986,12 @@ func TestMultipleReprocessingCycles(t *testing.T) {
 		}
 
 		// Check event count after each cycle
-		taskMap := h.ClusterTaskMap.GetOrCreateTaskMap(testClusterName)
-		taskMap.Lock()
-		tasks := taskMap.TaskMap[testTaskID]
+		
+		tasks,ok := h.ClusterTaskMap.GetTaskByID(testClusterName, testTaskID)
+		if !ok || len(tasks) == 0 {
+			t.Fatalf("Cycle %d: Task not found after processing", cycle)
+		}
 		eventCount := len(tasks[0].StateTransitions)
-		taskMap.Unlock()
 
 		// Should always be exactly 3 events, never growing
 		if eventCount != 3 {
