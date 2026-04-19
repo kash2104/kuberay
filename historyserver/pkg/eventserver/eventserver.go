@@ -105,18 +105,10 @@ func DecodeEventFileBytes(fileName string, raw []byte) ([]map[string]any, error)
 func NewEventHandler(reader storage.StorageReader) *EventHandler {
 	return &EventHandler{
 		reader: reader,
-		ClusterTaskMap: &types.ClusterTaskMap{
-			ClusterTaskMap: make(map[string]*types.TaskMap),
-		},
-		ClusterActorMap: &types.ClusterActorMap{
-			ClusterActorMap: make(map[string]*types.ActorMap),
-		},
-		ClusterJobMap: &types.ClusterJobMap{
-			ClusterJobMap: make(map[string]*types.JobMap),
-		},
-		ClusterNodeMap: &types.ClusterNodeMap{
-			ClusterNodeMap: make(map[string]*types.NodeMap),
-		},
+		ClusterTaskMap: types.NewClusterTaskMap(),
+		ClusterActorMap: types.NewClusterActorMap(),
+		ClusterJobMap: types.NewClusterJobMap(),
+		ClusterNodeMap: types.NewClusterNodeMap(),
 		ClusterLogEventMap: types.NewClusterLogEventMap(),
 	}
 }
@@ -586,67 +578,29 @@ func (h *EventHandler) getAllNodeEventFiles(clusterInfo utils.ClusterInfo) []str
 // GetTasks returns a slice of thread-safe deep copies of all task attempts for a given cluster session.
 // Deep copy ensures the returned data is safe to use after the lock is released.
 func (h *EventHandler) getTasks(clusterSessionKey string) []types.Task {
-	h.ClusterTaskMap.RLock()
-	defer h.ClusterTaskMap.RUnlock()
 
-	taskMap, ok := h.ClusterTaskMap.ClusterTaskMap[clusterSessionKey]
+	taskMap, ok := h.ClusterTaskMap.GetTaskMap(clusterSessionKey)
 	if !ok {
 		// TODO(jiangjiawei1103): Add error handling.
 		logrus.Errorf("Task map not found for cluster session: %s", clusterSessionKey)
 		return []types.Task{}
 	}
 
-	taskMap.Lock()
-	defer taskMap.Unlock()
-
-	// Flatten all task attempts into a single slice with deep copy.
-	allTasks := make([]types.Task, 0)
-	for _, taskAttempts := range taskMap.TaskMap {
-		for _, taskAttempt := range taskAttempts {
-			allTasks = append(allTasks, taskAttempt.DeepCopy())
-		}
+	tasks := make([]types.Task, 0)
+	for _, attempts := range taskMap {
+		tasks = append(tasks, attempts...)
 	}
 
-	return allTasks
+	return tasks
 }
 
 // GetActorsMap returns a thread-safe deep copy of all actors as a map for a given cluster
 func (h *EventHandler) getActorsMap(clusterName string) map[string]types.Actor {
-	h.ClusterActorMap.RLock()
-	defer h.ClusterActorMap.RUnlock()
-
-	actorMap, ok := h.ClusterActorMap.ClusterActorMap[clusterName]
-	if !ok {
-		return map[string]types.Actor{}
-	}
-
-	actorMap.Lock()
-	defer actorMap.Unlock()
-
-	actors := make(map[string]types.Actor, len(actorMap.ActorMap))
-	for id, actor := range actorMap.ActorMap {
-		actors[id] = actor.DeepCopy()
-	}
-	return actors
+	return h.ClusterActorMap.GetActorsMap(clusterName)
 }
 
 func (h *EventHandler) getJobsMap(clusterName string) map[string]types.Job {
-	h.ClusterJobMap.RLock()
-	defer h.ClusterJobMap.RUnlock()
-
-	jobMap, ok := h.ClusterJobMap.ClusterJobMap[clusterName]
-	if !ok {
-		return map[string]types.Job{}
-	}
-
-	jobMap.Lock()
-	defer jobMap.Unlock()
-
-	jobs := make(map[string]types.Job, len(jobMap.JobMap))
-	for id, job := range jobMap.JobMap {
-		jobs[id] = job.DeepCopy()
-	}
-	return jobs
+	return h.ClusterJobMap.GetJobsMap(clusterName)	
 }
 
 // getLogEventsByJobID returns a thread-safe deep copy of log events grouped by job ID.
@@ -1123,22 +1077,7 @@ func normalizeActorIDsToHex(actor *types.Actor) {
 
 // getNodeMap returns a thread-safe deep copy of all nodes for a given cluster session.
 func (h *EventHandler) getNodeMap(clusterSessionID string) map[string]types.Node {
-	h.ClusterNodeMap.RLock()
-	defer h.ClusterNodeMap.RUnlock()
-
-	nodeMap, ok := h.ClusterNodeMap.ClusterNodeMap[clusterSessionID]
-	if !ok {
-		return map[string]types.Node{}
-	}
-
-	nodeMap.Lock()
-	defer nodeMap.Unlock()
-
-	nodes := make(map[string]types.Node, len(nodeMap.NodeMap))
-	for id, node := range nodeMap.NodeMap {
-		nodes[id] = node.DeepCopy()
-	}
-	return nodes
+	return h.ClusterNodeMap.GetNodeMap(clusterSessionID)	
 }
 
 // ProcessSingleSession reads all event files for a single session synchronously
