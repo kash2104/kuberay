@@ -133,9 +133,6 @@ linters:
       - linters: [noctx]
         path: '^historyserver/test/'
 
-      # nilerr false positive in filepath.Walk callbacks: returning nil skips the
-      # current entry and continues traversal; it doesn't mean to ignore the error
-      # from the Walk function.
       - linters: [nilerr]
         path: '^historyserver/pkg/collector/eventcollector/eventcollector\.go$'
 
